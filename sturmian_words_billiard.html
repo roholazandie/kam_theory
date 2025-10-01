@@ -1,0 +1,314 @@
+import React, { useState, useEffect, useRef } from 'react';
+import { Play, Pause, RotateCcw } from 'lucide-react';
+
+const SturmianBilliard = () => {
+  const canvasRef = useRef(null);
+  const animationRef = useRef(null);
+  
+  const [tangent, setTangent] = useState(1);
+  const [speed, setSpeed] = useState(5);
+  const [isRunning, setIsRunning] = useState(false);
+  const [sequence, setSequence] = useState('');
+  
+  const stateRef = useRef({
+    x: 0,
+    y: 400,
+    vx: 0,
+    vy: 0,
+    initialized: false
+  });
+
+  const CANVAS_SIZE = 400;
+  const BALL_RADIUS = 8;
+
+  useEffect(() => {
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+
+    const ctx = canvas.getContext('2d');
+    
+    const draw = () => {
+      // Clear canvas
+      ctx.fillStyle = '#1e293b';
+      ctx.fillRect(0, 0, CANVAS_SIZE, CANVAS_SIZE);
+      
+      // Draw grid
+      ctx.strokeStyle = '#334155';
+      ctx.lineWidth = 1;
+      for (let i = 0; i <= CANVAS_SIZE; i += 50) {
+        ctx.beginPath();
+        ctx.moveTo(i, 0);
+        ctx.lineTo(i, CANVAS_SIZE);
+        ctx.stroke();
+      }
+      for (let i = 0; i <= CANVAS_SIZE; i += 50) {
+        ctx.beginPath();
+        ctx.moveTo(0, i);
+        ctx.lineTo(CANVAS_SIZE, i);
+        ctx.stroke();
+      }
+      
+      // Draw walls with labels
+      ctx.strokeStyle = '#ef4444';
+      ctx.lineWidth = 4;
+      ctx.strokeRect(0, 0, CANVAS_SIZE, CANVAS_SIZE);
+      
+      // Wall labels
+      ctx.fillStyle = '#ef4444';
+      ctx.font = 'bold 20px monospace';
+      // Left wall - middle
+      ctx.fillText('0', 10, CANVAS_SIZE / 2 + 8);
+      // Right wall - middle
+      ctx.fillText('0', CANVAS_SIZE - 30, CANVAS_SIZE / 2 + 8);
+      // Top wall
+      ctx.fillText('1', CANVAS_SIZE / 2 - 10, 25);
+      // Bottom wall
+      ctx.fillText('1', CANVAS_SIZE / 2 - 10, CANVAS_SIZE - 10);
+      
+      // Draw ball
+      ctx.beginPath();
+      ctx.arc(stateRef.current.x, stateRef.current.y, BALL_RADIUS, 0, Math.PI * 2);
+      ctx.fillStyle = '#3b82f6';
+      ctx.fill();
+      ctx.strokeStyle = '#60a5fa';
+      ctx.lineWidth = 2;
+      ctx.stroke();
+      
+      // Draw center dot for clarity
+      ctx.beginPath();
+      ctx.arc(stateRef.current.x, stateRef.current.y, 2, 0, Math.PI * 2);
+      ctx.fillStyle = '#fff';
+      ctx.fill();
+    };
+
+    const update = () => {
+      if (!isRunning) return;
+      
+      const state = stateRef.current;
+      
+      // Initialize or update velocity
+      if (!state.initialized) {
+        const theta = Math.atan(tangent);
+        const magnitude = speed;
+        state.vx = Math.cos(theta) * magnitude;
+        state.vy = -Math.sin(theta) * magnitude;
+        state.initialized = true;
+      } else {
+        // Update speed while maintaining direction
+        const currentMagnitude = Math.sqrt(state.vx ** 2 + state.vy ** 2);
+        if (currentMagnitude > 0) {
+          const ratio = speed / currentMagnitude;
+          state.vx *= ratio;
+          state.vy *= ratio;
+        }
+      }
+      
+      // Move ball
+      state.x += state.vx;
+      state.y += state.vy;
+      
+      // Check collisions with walls (based on center)
+      // Left wall (x = 0)
+      if (state.x <= 0) {
+        state.x = 0;
+        state.vx = Math.abs(state.vx);
+        setSequence(prev => prev + '0');
+      }
+      
+      // Right wall (x = CANVAS_SIZE)
+      if (state.x >= CANVAS_SIZE) {
+        state.x = CANVAS_SIZE;
+        state.vx = -Math.abs(state.vx);
+        setSequence(prev => prev + '0');
+      }
+      
+      // Top wall (y = 0)
+      if (state.y <= 0) {
+        state.y = 0;
+        state.vy = Math.abs(state.vy);
+        setSequence(prev => prev + '1');
+      }
+      
+      // Bottom wall (y = CANVAS_SIZE)
+      if (state.y >= CANVAS_SIZE) {
+        state.y = CANVAS_SIZE;
+        state.vy = -Math.abs(state.vy);
+        setSequence(prev => prev + '1');
+      }
+    };
+
+    const animate = () => {
+      update();
+      draw();
+      animationRef.current = requestAnimationFrame(animate);
+    };
+
+    animate();
+
+    return () => {
+      if (animationRef.current) {
+        cancelAnimationFrame(animationRef.current);
+      }
+    };
+  }, [isRunning, speed, tangent]);
+
+  const handleStart = () => {
+    setIsRunning(true);
+  };
+
+  const handleStop = () => {
+    setIsRunning(false);
+  };
+
+  const handleReset = () => {
+    setIsRunning(false);
+    setSequence('');
+    stateRef.current = {
+      x: 0,
+      y: CANVAS_SIZE,
+      vx: 0,
+      vy: 0,
+      initialized: false
+    };
+  };
+
+  const handleTangentChange = (e) => {
+    const newTangent = parseFloat(e.target.value);
+    setTangent(newTangent);
+    if (stateRef.current.initialized) {
+      const theta = Math.atan(newTangent);
+      const currentSpeed = Math.sqrt(stateRef.current.vx ** 2 + stateRef.current.vy ** 2);
+      stateRef.current.vx = Math.cos(theta) * currentSpeed;
+      stateRef.current.vy = -Math.sin(theta) * currentSpeed;
+    }
+  };
+
+  return (
+    <div className="w-full max-w-4xl mx-auto p-6 bg-slate-900 rounded-lg">
+      <h1 className="text-3xl font-bold text-white mb-2">Sturmian Word Generator</h1>
+      <p className="text-slate-300 mb-6">
+        Watch how the billiard ball generates a binary sequence: 0 for left/right walls, 1 for top/bottom walls
+      </p>
+      
+      {/* Sequence Display */}
+      <div className="bg-slate-800 p-4 rounded-lg mb-6 border-2 border-slate-700">
+        <div className="flex items-center justify-between mb-2">
+          <h2 className="text-lg font-semibold text-white">Sturmian Sequence</h2>
+          <span className="text-sm text-slate-400">Length: {sequence.length}</span>
+        </div>
+        <div className="bg-slate-950 p-3 rounded font-mono text-sm text-green-400 h-24 overflow-y-auto break-all">
+          {sequence || 'Press Start to begin...'}
+        </div>
+      </div>
+
+      {/* Canvas */}
+      <div className="bg-slate-800 p-4 rounded-lg mb-6">
+        <canvas
+          ref={canvasRef}
+          width={CANVAS_SIZE}
+          height={CANVAS_SIZE}
+          className="w-full border-2 border-slate-700 rounded"
+        />
+      </div>
+
+      {/* Controls */}
+      <div className="space-y-6">
+        {/* Angle Control */}
+        <div className="bg-slate-800 p-4 rounded-lg">
+          <label className="block text-white font-semibold mb-2">
+            Tangent (tan θ): {tangent.toFixed(3)} <span className="text-slate-400 text-sm">(θ = {(Math.atan(tangent) * 180 / Math.PI).toFixed(1)}°)</span>
+          </label>
+          <div className="flex gap-4 items-center mb-2">
+            <input
+              type="range"
+              min="0.001"
+              max="10"
+              step="0.001"
+              value={tangent}
+              onChange={handleTangentChange}
+              disabled={isRunning}
+              className="flex-1 h-2 bg-slate-700 rounded-lg appearance-none cursor-pointer"
+            />
+            <input
+              type="number"
+              min="0.001"
+              max="1000"
+              step="any"
+              value={tangent}
+              onChange={handleTangentChange}
+              disabled={isRunning}
+              className="w-24 px-3 py-2 bg-slate-700 text-white rounded border border-slate-600 focus:outline-none focus:border-blue-500"
+            />
+          </div>
+          <div className="flex justify-between text-xs text-slate-400">
+            <span>0 (0°)</span>
+            <span>1 (45°)</span>
+            <span>10 (84°)</span>
+          </div>
+        </div>
+
+        {/* Speed Control */}
+        <div className="bg-slate-800 p-4 rounded-lg">
+          <label className="block text-white font-semibold mb-2">
+            Speed: {speed.toFixed(1)}x
+          </label>
+          <input
+            type="range"
+            min="1"
+            max="100"
+            step="1"
+            value={speed}
+            onChange={(e) => setSpeed(parseFloat(e.target.value))}
+            className="w-full h-2 bg-slate-700 rounded-lg appearance-none cursor-pointer"
+          />
+          <div className="flex justify-between text-xs text-slate-400 mt-1">
+            <span>1x</span>
+            <span>50x</span>
+            <span>100x</span>
+          </div>
+        </div>
+
+        {/* Action Buttons */}
+        <div className="flex gap-4">
+          {!isRunning ? (
+            <button
+              onClick={handleStart}
+              className="flex-1 bg-green-600 hover:bg-green-700 text-white font-semibold py-3 px-6 rounded-lg flex items-center justify-center gap-2 transition-colors"
+            >
+              <Play size={20} />
+              Start
+            </button>
+          ) : (
+            <button
+              onClick={handleStop}
+              className="flex-1 bg-orange-600 hover:bg-orange-700 text-white font-semibold py-3 px-6 rounded-lg flex items-center justify-center gap-2 transition-colors"
+            >
+              <Pause size={20} />
+              Stop
+            </button>
+          )}
+          <button
+            onClick={handleReset}
+            className="flex-1 bg-slate-700 hover:bg-slate-600 text-white font-semibold py-3 px-6 rounded-lg flex items-center justify-center gap-2 transition-colors"
+          >
+            <RotateCcw size={20} />
+            Reset
+          </button>
+        </div>
+      </div>
+
+      {/* Information */}
+      <div className="mt-6 bg-slate-800 p-4 rounded-lg text-sm text-slate-300">
+        <h3 className="font-semibold text-white mb-2">About Sturmian Words</h3>
+        <p>
+          A Sturmian word is an infinite binary sequence with exactly n+1 factors of length n.
+          In this billiard simulation, the tangent (tan θ) determines the slope of the ball's trajectory,
+          and the sequence of wall hits creates a characteristic pattern. Try irrational values like
+          √2 ≈ 1.414 or φ ≈ 1.618 (golden ratio) for non-repeating patterns.
+        </p>
+      </div>
+    </div>
+  );
+};
+
+export default SturmianBilliard;

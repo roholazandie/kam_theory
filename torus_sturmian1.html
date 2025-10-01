@@ -1,0 +1,499 @@
+import React, { useState, useEffect, useRef } from 'react';
+import { Play, Pause, RotateCcw } from 'lucide-react';
+
+const SturmianTorus3D = () => {
+  const canvasRef = useRef(null);
+  const animationRef = useRef(null);
+  
+  const [tangent, setTangent] = useState(1.618); // Golden ratio
+  const [p, setP] = useState(2);
+  const [q, setQ] = useState(5);
+  const [useRatio, setUseRatio] = useState(false);
+  const [speed, setSpeed] = useState(5);
+  const [isRunning, setIsRunning] = useState(false);
+  const [sequence, setSequence] = useState('');
+  const [showTrace, setShowTrace] = useState(true);
+  
+  const stateRef = useRef({
+    t: 0,
+    lastTheta1: 0,
+    lastTheta2: 0,
+    tracePoints: [],
+    initialized: false,
+    completedCycle: false
+  });
+
+  const CANVAS_SIZE = 600;
+  const R = 150; // Major radius
+  const r = 60;  // Minor radius
+
+  // GCD helper function
+  const gcd = (a, b) => {
+    a = Math.abs(Math.round(a));
+    b = Math.abs(Math.round(b));
+    while (b !== 0) {
+      let temp = b;
+      b = a % b;
+      a = temp;
+    }
+    return a;
+  };
+  const toXYZ = (theta1, theta2) => {
+    const x = (R + r * Math.cos(theta1)) * Math.cos(theta2);
+    const y = (R + r * Math.cos(theta1)) * Math.sin(theta2);
+    const z = r * Math.sin(theta1);
+    return { x, y, z };
+  };
+
+  // Project 3D to 2D with rotation
+  const project = (x, y, z, rotX, rotY) => {
+    // Rotate around Y axis
+    let x1 = x * Math.cos(rotY) - z * Math.sin(rotY);
+    let z1 = x * Math.sin(rotY) + z * Math.cos(rotY);
+    
+    // Rotate around X axis
+    let y1 = y * Math.cos(rotX) - z1 * Math.sin(rotX);
+    let z2 = y * Math.sin(rotX) + z1 * Math.cos(rotX);
+    
+    // Perspective projection
+    const distance = 600;
+    const scale = distance / (distance + z2);
+    
+    return {
+      x: x1 * scale + CANVAS_SIZE / 2,
+      y: y1 * scale + CANVAS_SIZE / 2,
+      z: z2
+    };
+  };
+
+  useEffect(() => {
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+
+    const ctx = canvas.getContext('2d');
+    let rotX = 0.3;
+    let rotY = 0;
+
+    const draw = () => {
+      // Clear canvas
+      ctx.fillStyle = '#0f172a';
+      ctx.fillRect(0, 0, CANVAS_SIZE, CANVAS_SIZE);
+      
+      // Auto-rotate
+      rotY += 0.005;
+      
+      // Draw torus mesh
+      ctx.strokeStyle = '#1e40af';
+      ctx.lineWidth = 0.5;
+      
+      const meshRes = 40;
+      const torusPoints = [];
+      
+      // Generate torus mesh points
+      for (let i = 0; i <= meshRes; i++) {
+        const u = (i / meshRes) * 2 * Math.PI;
+        const row = [];
+        for (let j = 0; j <= meshRes; j++) {
+          const v = (j / meshRes) * 2 * Math.PI;
+          const { x, y, z } = toXYZ(u, v);
+          const proj = project(x, y, z, rotX, rotY);
+          row.push(proj);
+        }
+        torusPoints.push(row);
+      }
+      
+      // Draw longitudinal lines
+      for (let i = 0; i < torusPoints.length; i += 4) {
+        ctx.beginPath();
+        for (let j = 0; j < torusPoints[i].length; j++) {
+          const p = torusPoints[i][j];
+          if (j === 0) ctx.moveTo(p.x, p.y);
+          else ctx.lineTo(p.x, p.y);
+        }
+        ctx.stroke();
+      }
+      
+      // Draw meridional lines
+      for (let j = 0; j < torusPoints[0].length; j += 4) {
+        ctx.beginPath();
+        for (let i = 0; i < torusPoints.length; i++) {
+          const p = torusPoints[i][j];
+          if (i === 0) ctx.moveTo(p.x, p.y);
+          else ctx.lineTo(p.x, p.y);
+        }
+        ctx.stroke();
+      }
+      
+      const state = stateRef.current;
+      
+      // Calculate current position using the same effective tangent
+      const effectiveTangent = useRatio ? (p / q) : tangent;
+      const theta1 = state.t % (2 * Math.PI);
+      const theta2 = (effectiveTangent * state.t) % (2 * Math.PI);
+      
+      const { x, y, z } = toXYZ(theta1, theta2);
+      const pos = project(x, y, z, rotX, rotY);
+      
+      // Draw trace if enabled
+      if (showTrace && state.tracePoints.length > 1) {
+        ctx.strokeStyle = '#f59e0b';
+        ctx.lineWidth = 2;
+        ctx.beginPath();
+        
+        for (let i = 0; i < state.tracePoints.length; i++) {
+          const tp = state.tracePoints[i];
+          const { x: tx, y: ty, z: tz } = toXYZ(tp.theta1, tp.theta2);
+          const tproj = project(tx, ty, tz, rotX, rotY);
+          
+          if (i === 0) ctx.moveTo(tproj.x, tproj.y);
+          else ctx.lineTo(tproj.x, tproj.y);
+        }
+        ctx.stroke();
+      }
+      
+      // Draw particle
+      ctx.beginPath();
+      ctx.arc(pos.x, pos.y, 6, 0, Math.PI * 2);
+      ctx.fillStyle = '#f59e0b';
+      ctx.fill();
+      ctx.strokeStyle = '#fbbf24';
+      ctx.lineWidth = 2;
+      ctx.stroke();
+    };
+
+    const update = () => {
+      if (!isRunning) return;
+      
+      const state = stateRef.current;
+      
+      // Update time parameter
+      const dt = speed * 0.01;
+      state.t += dt;
+      
+      // Calculate angles based on mode
+      const effectiveTangent = useRatio ? (p / q) : tangent;
+      const theta1 = state.t % (2 * Math.PI);
+      const theta2 = (effectiveTangent * state.t) % (2 * Math.PI);
+      
+      // Check for edge crossings
+      if (state.initialized) {
+        // Check theta1 crossing (minor circle)
+        if (Math.floor(state.lastTheta1 / (2 * Math.PI)) !== Math.floor(theta1 / (2 * Math.PI))) {
+          setSequence(prev => prev + '1');
+        }
+        
+        // Check theta2 crossing (major circle)
+        if (Math.floor(state.lastTheta2 / (2 * Math.PI)) !== Math.floor(theta2 / (2 * Math.PI))) {
+          setSequence(prev => prev + '0');
+        }
+      } else {
+        state.initialized = true;
+      }
+      
+      state.lastTheta1 = theta1;
+      state.lastTheta2 = theta2;
+      
+      // Add to trace (keep all points)
+      state.tracePoints.push({ theta1, theta2 });
+    };
+
+    const animate = () => {
+      update();
+      draw();
+      animationRef.current = requestAnimationFrame(animate);
+    };
+
+    animate();
+
+    return () => {
+      if (animationRef.current) {
+        cancelAnimationFrame(animationRef.current);
+      }
+    };
+  }, [isRunning, speed, tangent, showTrace, p, q, useRatio]);
+
+  const handleStart = () => {
+    setIsRunning(true);
+  };
+
+  const handleStop = () => {
+    setIsRunning(false);
+  };
+
+  const handleReset = () => {
+    setIsRunning(false);
+    setSequence('');
+    stateRef.current = {
+      t: 0,
+      lastTheta1: 0,
+      lastTheta2: 0,
+      tracePoints: [],
+      initialized: false
+    };
+  };
+
+  const handleTangentChange = (e) => {
+    const newTangent = parseFloat(e.target.value);
+    if (!isNaN(newTangent) && newTangent > 0) {
+      setTangent(newTangent);
+    }
+  };
+
+  return (
+    <div className="w-full max-w-5xl mx-auto p-6 bg-slate-900 rounded-lg">
+      <h1 className="text-3xl font-bold text-white mb-2">Sturmian Word on 3D Torus</h1>
+      <p className="text-slate-300 mb-6">
+        Watch a particle trace a path on a 3D torus: 0 for major circle crossings, 1 for minor circle crossings
+      </p>
+      
+      {/* Sequence Display */}
+      <div className="bg-slate-800 p-4 rounded-lg mb-6 border-2 border-slate-700">
+        <div className="flex items-center justify-between mb-2">
+          <h2 className="text-lg font-semibold text-white">Sturmian Sequence</h2>
+          <span className="text-sm text-slate-400">Length: {sequence.length}</span>
+        </div>
+        <div className="bg-slate-950 p-3 rounded font-mono text-sm text-green-400 h-24 overflow-y-auto break-all">
+          {sequence || 'Press Start to begin...'}
+        </div>
+      </div>
+
+      {/* Canvas */}
+      <div className="bg-slate-800 p-4 rounded-lg mb-6">
+        <canvas
+          ref={canvasRef}
+          width={CANVAS_SIZE}
+          height={CANVAS_SIZE}
+          className="w-full border-2 border-slate-700 rounded"
+        />
+      </div>
+
+      {/* Controls */}
+      <div className="space-y-6">
+        {/* Mode Toggle */}
+        <div className="bg-slate-800 p-4 rounded-lg">
+          <label className="block text-white font-semibold mb-3">Input Mode</label>
+          <div className="flex gap-4">
+            <button
+              onClick={() => setUseRatio(false)}
+              disabled={isRunning}
+              className={`flex-1 py-2 px-4 rounded-lg font-semibold transition-colors ${
+                !useRatio 
+                  ? 'bg-blue-600 text-white' 
+                  : 'bg-slate-700 text-slate-300 hover:bg-slate-600'
+              } disabled:opacity-50`}
+            >
+              Irrational (Slope)
+            </button>
+            <button
+              onClick={() => setUseRatio(true)}
+              disabled={isRunning}
+              className={`flex-1 py-2 px-4 rounded-lg font-semibold transition-colors ${
+                useRatio 
+                  ? 'bg-blue-600 text-white' 
+                  : 'bg-slate-700 text-slate-300 hover:bg-slate-600'
+              } disabled:opacity-50`}
+            >
+              Rational (p/q)
+            </button>
+          </div>
+        </div>
+
+        {/* Conditional Input: Either Slope or p/q */}
+        {!useRatio ? (
+          <div className="bg-slate-800 p-4 rounded-lg">
+            <label className="block text-white font-semibold mb-2">
+              Slope (irrational): {tangent.toFixed(6)}
+            </label>
+            <div className="flex gap-4 items-center mb-2">
+              <input
+                type="range"
+                min="0.001"
+                max="10"
+                step="0.001"
+                value={tangent}
+                onChange={handleTangentChange}
+                disabled={isRunning}
+                className="flex-1 h-2 bg-slate-700 rounded-lg appearance-none cursor-pointer"
+              />
+              <input
+                type="number"
+                min="0.001"
+                max="1000"
+                step="any"
+                value={tangent}
+                onChange={handleTangentChange}
+                disabled={isRunning}
+                className="w-32 px-3 py-2 bg-slate-700 text-white rounded border border-slate-600 focus:outline-none focus:border-blue-500"
+              />
+            </div>
+            <div className="flex gap-2 mt-2">
+              <button
+                onClick={() => setTangent(Math.sqrt(2))}
+                disabled={isRunning}
+                className="px-3 py-1 bg-slate-700 hover:bg-slate-600 text-white text-sm rounded disabled:opacity-50"
+              >
+                √2 ≈ 1.414
+              </button>
+              <button
+                onClick={() => setTangent((1 + Math.sqrt(5)) / 2)}
+                disabled={isRunning}
+                className="px-3 py-1 bg-slate-700 hover:bg-slate-600 text-white text-sm rounded disabled:opacity-50"
+              >
+                φ ≈ 1.618
+              </button>
+              <button
+                onClick={() => setTangent(Math.PI)}
+                disabled={isRunning}
+                className="px-3 py-1 bg-slate-700 hover:bg-slate-600 text-white text-sm rounded disabled:opacity-50"
+              >
+                π ≈ 3.142
+              </button>
+            </div>
+          </div>
+        ) : (
+          <div className="bg-slate-800 p-4 rounded-lg">
+            <label className="block text-white font-semibold mb-3">
+              Rational Ratio: p/q = {p}/{q} = {(p/q).toFixed(6)}
+            </label>
+            <div className="grid grid-cols-2 gap-4">
+              <div>
+                <label className="block text-slate-300 text-sm mb-2">p (numerator)</label>
+                <input
+                  type="number"
+                  min="1"
+                  max="100"
+                  step="1"
+                  value={p}
+                  onChange={(e) => setP(parseInt(e.target.value) || 1)}
+                  disabled={isRunning}
+                  className="w-full px-3 py-2 bg-slate-700 text-white rounded border border-slate-600 focus:outline-none focus:border-blue-500"
+                />
+              </div>
+              <div>
+                <label className="block text-slate-300 text-sm mb-2">q (denominator)</label>
+                <input
+                  type="number"
+                  min="1"
+                  max="100"
+                  step="1"
+                  value={q}
+                  onChange={(e) => setQ(parseInt(e.target.value) || 1)}
+                  disabled={isRunning}
+                  className="w-full px-3 py-2 bg-slate-700 text-white rounded border border-slate-600 focus:outline-none focus:border-blue-500"
+                />
+              </div>
+            </div>
+            <div className="flex gap-2 mt-3">
+              <button
+                onClick={() => { setP(2); setQ(3); }}
+                disabled={isRunning}
+                className="px-3 py-1 bg-slate-700 hover:bg-slate-600 text-white text-sm rounded disabled:opacity-50"
+              >
+                2/3
+              </button>
+              <button
+                onClick={() => { setP(3); setQ(5); }}
+                disabled={isRunning}
+                className="px-3 py-1 bg-slate-700 hover:bg-slate-600 text-white text-sm rounded disabled:opacity-50"
+              >
+                3/5
+              </button>
+              <button
+                onClick={() => { setP(5); setQ(8); }}
+                disabled={isRunning}
+                className="px-3 py-1 bg-slate-700 hover:bg-slate-600 text-white text-sm rounded disabled:opacity-50"
+              >
+                5/8
+              </button>
+              <button
+                onClick={() => { setP(8); setQ(13); }}
+                disabled={isRunning}
+                className="px-3 py-1 bg-slate-700 hover:bg-slate-600 text-white text-sm rounded disabled:opacity-50"
+              >
+                8/13
+              </button>
+            </div>
+          </div>
+        )}
+
+        {/* Speed Control */}
+        <div className="bg-slate-800 p-4 rounded-lg">
+          <label className="block text-white font-semibold mb-2">
+            Speed: {speed.toFixed(1)}x
+          </label>
+          <input
+            type="range"
+            min="1"
+            max="100"
+            step="1"
+            value={speed}
+            onChange={(e) => setSpeed(parseFloat(e.target.value))}
+            className="w-full h-2 bg-slate-700 rounded-lg appearance-none cursor-pointer"
+          />
+          <div className="flex justify-between text-xs text-slate-400 mt-1">
+            <span>1x</span>
+            <span>50x</span>
+            <span>100x</span>
+          </div>
+        </div>
+
+        {/* Trace Toggle */}
+        <div className="bg-slate-800 p-4 rounded-lg">
+          <label className="flex items-center gap-3 cursor-pointer">
+            <input
+              type="checkbox"
+              checked={showTrace}
+              onChange={(e) => setShowTrace(e.target.checked)}
+              className="w-5 h-5 rounded bg-slate-700 border-slate-600"
+            />
+            <span className="text-white font-semibold">Show Trace Path</span>
+          </label>
+        </div>
+
+        {/* Action Buttons */}
+        <div className="flex gap-4">
+          {!isRunning ? (
+            <button
+              onClick={handleStart}
+              className="flex-1 bg-green-600 hover:bg-green-700 text-white font-semibold py-3 px-6 rounded-lg flex items-center justify-center gap-2 transition-colors"
+            >
+              <Play size={20} />
+              Start
+            </button>
+          ) : (
+            <button
+              onClick={handleStop}
+              className="flex-1 bg-orange-600 hover:bg-orange-700 text-white font-semibold py-3 px-6 rounded-lg flex items-center justify-center gap-2 transition-colors"
+            >
+              <Pause size={20} />
+              Stop
+            </button>
+          )}
+          <button
+            onClick={handleReset}
+            className="flex-1 bg-slate-700 hover:bg-slate-600 text-white font-semibold py-3 px-6 rounded-lg flex items-center justify-center gap-2 transition-colors"
+          >
+            <RotateCcw size={20} />
+            Reset
+          </button>
+        </div>
+      </div>
+
+      {/* Information */}
+      <div className="mt-6 bg-slate-800 p-4 rounded-lg text-sm text-slate-300">
+        <h3 className="font-semibold text-white mb-2">About 3D Torus Sturmian Words</h3>
+        <p className="mb-2">
+          The particle moves on a 3D torus with parametric equations: θ₁(t) = t and θ₂(t) = slope·t. 
+          You can use either an irrational slope (like √2, φ, or π) or a rational ratio p/q.
+        </p>
+        <p>
+          When the slope is <strong>irrational</strong>, the path never repeats and creates an aperiodic 
+          Sturmian sequence. When it's <strong>rational (p/q)</strong>, the path closes after q loops 
+          around the major circle and p loops around the minor circle, creating a periodic sequence.
+        </p>
+      </div>
+    </div>
+  );
+};
+
+export default SturmianTorus3D;
