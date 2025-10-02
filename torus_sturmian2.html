@@ -348,9 +348,15 @@
             </div>
         </div>
 
-        <!-- Canvas -->
+        <!-- 3D Torus Canvas -->
         <div class="canvas-container">
             <canvas id="canvas" width="600" height="600"></canvas>
+        </div>
+
+        <!-- Unwrapped Torus View -->
+        <h3 style="color: white; margin: 20px 0 10px; font-size: 1.2rem;">Unwrapped Torus (Fundamental Domain)</h3>
+        <div class="canvas-container">
+            <canvas id="unwrappedCanvas" width="600" height="300"></canvas>
         </div>
 
         <!-- Mode Toggle -->
@@ -503,6 +509,11 @@
 
         const canvas = document.getElementById('canvas');
         const ctx = canvas.getContext('2d');
+        const unwrappedCanvas = document.getElementById('unwrappedCanvas');
+        const unwrappedCtx = unwrappedCanvas.getContext('2d');
+
+        const UNWRAPPED_WIDTH = 600;
+        const UNWRAPPED_HEIGHT = 300;
 
         // Helper functions
         function gcd(a, b) {
@@ -719,6 +730,115 @@
             ctx.strokeStyle = state.completedCycle ? '#f87171' : '#fbbf24';
             ctx.lineWidth = 2;
             ctx.stroke();
+
+            // Draw unwrapped torus view
+            drawUnwrappedTorus();
+        }
+
+        function drawUnwrappedTorus() {
+            // Clear unwrapped canvas
+            unwrappedCtx.fillStyle = '#0f172a';
+            unwrappedCtx.fillRect(0, 0, UNWRAPPED_WIDTH, UNWRAPPED_HEIGHT);
+
+            // Draw background rectangle with transparent blue
+            unwrappedCtx.fillStyle = 'rgba(59, 130, 246, 0.1)';
+            unwrappedCtx.fillRect(20, 20, UNWRAPPED_WIDTH - 40, UNWRAPPED_HEIGHT - 40);
+
+            // Draw pink grid lines
+            unwrappedCtx.strokeStyle = '#ec4899';
+            unwrappedCtx.lineWidth = 0.5;
+
+            const gridSize = 10;
+            const rectWidth = UNWRAPPED_WIDTH - 40;
+            const rectHeight = UNWRAPPED_HEIGHT - 40;
+
+            // Vertical lines
+            for (let i = 0; i <= gridSize; i++) {
+                const x = 20 + (i * rectWidth / gridSize);
+                unwrappedCtx.beginPath();
+                unwrappedCtx.moveTo(x, 20);
+                unwrappedCtx.lineTo(x, UNWRAPPED_HEIGHT - 20);
+                unwrappedCtx.stroke();
+            }
+
+            // Horizontal lines
+            for (let i = 0; i <= gridSize; i++) {
+                const y = 20 + (i * rectHeight / gridSize);
+                unwrappedCtx.beginPath();
+                unwrappedCtx.moveTo(20, y);
+                unwrappedCtx.lineTo(UNWRAPPED_WIDTH - 20, y);
+                unwrappedCtx.stroke();
+            }
+
+            // Draw labels
+            unwrappedCtx.fillStyle = '#94a3b8';
+            unwrappedCtx.font = '12px sans-serif';
+            unwrappedCtx.fillText('θ₂ (major) →', UNWRAPPED_WIDTH / 2 - 30, UNWRAPPED_HEIGHT - 5);
+            unwrappedCtx.save();
+            unwrappedCtx.translate(10, UNWRAPPED_HEIGHT / 2);
+            unwrappedCtx.rotate(-Math.PI / 2);
+            unwrappedCtx.fillText('θ₁ (minor) →', -30, 0);
+            unwrappedCtx.restore();
+
+            // Draw trace on unwrapped view
+            if (config.showTrace && state.tracePoints.length > 1) {
+                unwrappedCtx.strokeStyle = '#f59e0b';
+                unwrappedCtx.lineWidth = 2;
+                unwrappedCtx.beginPath();
+
+                for (let i = 0; i < state.tracePoints.length; i++) {
+                    const tp = state.tracePoints[i];
+                    // Map angles to rectangle coordinates
+                    // θ₁ ranges from 0 to 2π → maps to vertical (y-axis)
+                    // θ₂ ranges from 0 to 2π → maps to horizontal (x-axis)
+                    const x = 20 + ((tp.theta2 % (2 * Math.PI)) / (2 * Math.PI)) * rectWidth;
+                    const y = 20 + ((tp.theta1 % (2 * Math.PI)) / (2 * Math.PI)) * rectHeight;
+
+                    if (i === 0) {
+                        unwrappedCtx.moveTo(x, y);
+                    } else {
+                        const prevTp = state.tracePoints[i - 1];
+                        const prevX = 20 + ((prevTp.theta2 % (2 * Math.PI)) / (2 * Math.PI)) * rectWidth;
+                        const prevY = 20 + ((prevTp.theta1 % (2 * Math.PI)) / (2 * Math.PI)) * rectHeight;
+
+                        // Handle wrapping - if the line would cross the boundary, don't draw it
+                        const xDiff = Math.abs(x - prevX);
+                        const yDiff = Math.abs(y - prevY);
+
+                        if (xDiff < rectWidth * 0.5 && yDiff < rectHeight * 0.5) {
+                            unwrappedCtx.lineTo(x, y);
+                        } else {
+                            unwrappedCtx.moveTo(x, y);
+                        }
+                    }
+                }
+                unwrappedCtx.stroke();
+            }
+
+            // Calculate current position on unwrapped view
+            const effectiveTangent = config.useRatio ? (config.p / config.q) : config.tangent;
+            const theta1 = state.t;
+            const theta2 = effectiveTangent * state.t;
+
+            // Map to rectangle coordinates
+            const particleX = 20 + ((theta2 % (2 * Math.PI)) / (2 * Math.PI)) * rectWidth;
+            const particleY = 20 + ((theta1 % (2 * Math.PI)) / (2 * Math.PI)) * rectHeight;
+
+            // Draw particle on unwrapped view
+            unwrappedCtx.beginPath();
+            unwrappedCtx.arc(particleX, particleY, 6, 0, Math.PI * 2);
+            unwrappedCtx.fillStyle = state.completedCycle ? '#ef4444' : '#f59e0b';
+            unwrappedCtx.fill();
+            unwrappedCtx.strokeStyle = state.completedCycle ? '#f87171' : '#fbbf24';
+            unwrappedCtx.lineWidth = 2;
+            unwrappedCtx.stroke();
+
+            // Draw edge indicators (showing where wrapping happens)
+            unwrappedCtx.setLineDash([5, 5]);
+            unwrappedCtx.strokeStyle = '#475569';
+            unwrappedCtx.lineWidth = 1;
+            unwrappedCtx.strokeRect(20, 20, rectWidth, rectHeight);
+            unwrappedCtx.setLineDash([]);
         }
 
         function update() {
